@@ -35,7 +35,7 @@ PDF_PATH = SAVE_DIR / "resume.pdf"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 file_lock = threading.Lock()
 
-# ----------------------- Storage Utilities ------------------------
+# ------------------------ Storage Utilities ------------------------
 def ensure_folder():
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -594,3 +594,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
