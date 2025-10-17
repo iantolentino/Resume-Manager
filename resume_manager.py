@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Resume / Details Manager — A4 Canvas + Two-Column Preview + Two-Column PDF
-- Personal details (with DOB + dates tracked)
-- Categories with entries (name, optional link, date). Dates auto-default to today if blank.
-- Safe JSON with atomic writes and local lock
-- HTML live preview sized like A4 "PDF canvas" in two columns (balanced with CSS multi-columns)
-- Two-column PDF export using reportlab (graceful message if reportlab not installed)
+Resume / Details Manager — A4 Canvas + One/Two-Column Preview + Section Separator + Two-Column PDF
+Includes:
+ - Personal details
+ - Categories with entries (name, optional link, date). Dates default to today.
+ - Safe JSON atomic writes with a local lock
+ - Settings (global) for columns (1 or 2) and section separator (on/off)
+ - Live HTML preview sized like A4; preview respects columns and separator settings
+ - PDF export using reportlab when available; respects columns and separator settings
+ - Flask web UI to manage data and settings
 
 Run:
   pip install flask
@@ -13,7 +16,6 @@ Run:
   pip install reportlab
   python app.py
 """
-
 from pathlib import Path
 import json
 import datetime
@@ -24,20 +26,29 @@ import threading
 import shutil
 import logging
 import traceback
-
 from typing import Dict, Any, List, Optional
 
 # ----------------------------- Config -----------------------------
-SAVE_PATH = Path("C:/ResumeDetails/resume_data.json")
+SAVE_PATH = Path("./resume_data.json")
 SAVE_DIR = SAVE_PATH.parent
 PDF_PATH = SAVE_DIR / "resume.pdf"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 file_lock = threading.Lock()
 
-# ------------------------ Storage Utilities ------------------------
+# ----------------------- Storage Utilities ------------------------
 def ensure_folder():
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
+
+def default_structure():
+    return {
+        "personal_details": {},
+        "categories": {},
+        "settings": {
+            "columns": 2,     # default to 2 columns
+            "separator": True # default: show horizontal separators
+        }
+    }
 
 def atomic_save(data: dict, max_attempts: int = 8, retry_delay: float = 0.12):
     ensure_folder()
@@ -78,11 +89,19 @@ def load_data(retries: int = 6, retry_delay: float = 0.08) -> dict:
     for attempt in range(retries):
         try:
             if not SAVE_PATH.exists():
-                base = {"personal_details": {}, "categories": {}}
+                base = default_structure()
                 atomic_save(base)
                 return base
             with file_lock, open(SAVE_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
+                raw = json.load(f)
+                # Ensure settings exist
+                if "settings" not in raw:
+                    raw["settings"] = default_structure()["settings"]
+                if "personal_details" not in raw:
+                    raw["personal_details"] = {}
+                if "categories" not in raw:
+                    raw["categories"] = {}
+                return raw
         except (PermissionError, OSError, json.JSONDecodeError) as e:
             logging.warning("load_data attempt %d failed: %s", attempt + 1, e)
             if isinstance(e, json.JSONDecodeError):
@@ -92,12 +111,12 @@ def load_data(retries: int = 6, retry_delay: float = 0.08) -> dict:
                     logging.info("Backed up corrupt JSON to %s", backup)
                 except Exception:
                     logging.exception("Failed to backup corrupt JSON")
-                base = {"personal_details": {}, "categories": {}}
+                base = default_structure()
                 atomic_save(base)
                 return base
             time.sleep(retry_delay)
     logging.error("load_data failed after retries; returning empty structure.")
-    return {"personal_details": {}, "categories": {}}
+    return default_structure()
 
 # -------------------------- CRUD Logic ----------------------------
 def set_personal_details(details: Dict[str, Any]) -> None:
@@ -172,13 +191,30 @@ def delete_entry(category: str, index: int) -> bool:
     except Exception:
         return False
 
+# ----------------------- Settings Utilities -----------------------
+def get_settings() -> dict:
+    data = load_data()
+    return data.get("settings", default_structure()["settings"])
+
+def set_settings(new_settings: dict) -> None:
+    data = load_data()
+    settings = data.setdefault("settings", default_structure()["settings"])
+    # sanitize
+    columns = int(new_settings.get("columns", settings.get("columns", 2)))
+    if columns not in (1, 2):
+        columns = 2
+    separator = bool(new_settings.get("separator", settings.get("separator", True)))
+    settings["columns"] = columns
+    settings["separator"] = separator
+    atomic_save(data)
+
 # -------------------------- PDF Export ---------------------------
 def generate_pdf(output_path: Path) -> Optional[Path]:
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import mm
-        from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, KeepTogether
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, KeepTogether, Flowable
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib import colors
     except Exception as e:
         logging.warning("reportlab not installed: %s", e)
@@ -187,13 +223,31 @@ def generate_pdf(output_path: Path) -> Optional[Path]:
     data = load_data()
     pd = data.get("personal_details", {})
     cats = data.get("categories", {})
+    settings = data.get("settings", {"columns": 2, "separator": True})
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     styles = getSampleStyleSheet()
-    H1 = styles["Heading1"]; H1.spaceAfter = 6
-    H2 = styles["Heading2"]; H2.spaceBefore = 6; H2.spaceAfter = 4
-    N = styles["BodyText"]; N.spaceAfter = 2
+    H1 = ParagraphStyle('H1', parent=styles['Heading1'], fontSize=20, spaceAfter=6)
+    H2 = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=12, spaceBefore=6, spaceAfter=4)
+    N = ParagraphStyle('N', parent=styles['BodyText'], fontSize=10, spaceAfter=2)
+
+    class HRLine(Flowable):
+        def __init__(self, width, thickness=0.5, color=colors.HexColor('#e6e6e6')):
+            super().__init__()
+            self.width_val = width
+            self.thickness = thickness
+            self.color = color
+            self.height = thickness + 2
+
+        def wrap(self, availWidth, availHeight):
+            return (self.width_val if self.width_val else availWidth, self.height)
+
+        def draw(self):
+            self.canv.setStrokeColor(self.color)
+            self.canv.setLineWidth(self.thickness)
+            w = self.width_val if self.width_val else self.canv._pagesize[0]
+            self.canv.line(0, 0, w, 0)
 
     doc = BaseDocTemplate(str(output_path), pagesize=A4,
                           leftMargin=14*mm, rightMargin=14*mm,
@@ -202,28 +256,38 @@ def generate_pdf(output_path: Path) -> Optional[Path]:
     frame_gap = 8*mm
     page_w, page_h = A4
     usable_w = page_w - doc.leftMargin - doc.rightMargin
-    col_w = (usable_w - frame_gap) / 2
     frame_h = page_h - doc.topMargin - doc.bottomMargin
-    x0 = doc.leftMargin
-    y0 = doc.bottomMargin
 
-    frames = [
-        Frame(x0, y0, col_w, frame_h, id='col1', showBoundary=0),
-        Frame(x0 + col_w + frame_gap, y0, col_w, frame_h, id='col2', showBoundary=0),
-    ]
-    doc.addPageTemplates(PageTemplate(id='TwoCol', frames=frames))
+    frames = []
+    if settings.get("columns", 2) == 2:
+        col_w = (usable_w - frame_gap) / 2
+        x0 = doc.leftMargin
+        frames = [
+            Frame(x0, doc.bottomMargin, col_w, frame_h, id='col1', showBoundary=0),
+            Frame(x0 + col_w + frame_gap, doc.bottomMargin, col_w, frame_h, id='col2', showBoundary=0),
+        ]
+    else:
+        # one column spans full usable width
+        col_w = usable_w
+        frames = [Frame(doc.leftMargin, doc.bottomMargin, col_w, frame_h, id='col1', showBoundary=0)]
+
+    doc.addPageTemplates(PageTemplate(id='ResumeTemplate', frames=frames))
 
     story: List[Any] = []
 
     # Header
     name = pd.get("name") or "Your Name"
     header_parts = [Paragraph(name, H1)]
-    contact_line = " | ".join(filter(None, [
-        pd.get("email", ""),
-        pd.get("phone", ""),
-        pd.get("address", ""),
-        f"DOB: {format_date(pd.get('dob', ''))}" if pd.get("dob") else ""
-    ]))
+    contact_items = []
+    if pd.get("email"):
+        contact_items.append(pd.get("email"))
+    if pd.get("phone"):
+        contact_items.append(pd.get("phone"))
+    if pd.get("address"):
+        contact_items.append(pd.get("address"))
+    if pd.get("dob"):
+        contact_items.append(f"DOB: {format_date(pd.get('dob',''))}")
+    contact_line = " | ".join(contact_items)
     if contact_line:
         header_parts.append(Paragraph(contact_line, N))
     if pd.get("summary"):
@@ -232,23 +296,36 @@ def generate_pdf(output_path: Path) -> Optional[Path]:
     story.append(KeepTogether(header_parts))
 
     # Categories
+    first = True
     for cat, items in cats.items():
+        # Add separator before section when requested (but not before first)
+        if not first and settings.get("separator", True):
+            story.append(Spacer(1, 4))
+            story.append(HRLine(col_w, thickness=0.6))
+            story.append(Spacer(1, 4))
+        first = False
+
         story.append(Paragraph(cat, H2))
         for e in items:
             line = f"<b>{escape_html(e.get('name',''))}</b>"
             if e.get("date"):
                 line += f" — {escape_html(format_date(e['date']))}"
             if e.get("link"):
+                # show link as text (clickable when PDF viewer supports)
                 line += f" — <font color='{colors.HexColor('#1a73e8')}'>{escape_html(e['link'])}</font>"
             story.append(Paragraph(line, N))
-        story.append(Spacer(1, 6))
+        story.append(Spacer(1, 4))
 
-    doc.build(story)
+    try:
+        doc.build(story)
+    except Exception as e:
+        logging.exception("Error building PDF: %s", e)
+        return None
     return output_path
 
 # --------------------------- Utils --------------------------------
 def escape_html(s: str) -> str:
-    return (s or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 def format_date(val: str, out_fmt: str = "%b %d, %Y") -> str:
     try:
@@ -281,45 +358,58 @@ def run_flask():
 <head>
   <meta charset="utf-8"/>
   <title>Resume Manager</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root{
-      --bg:#f6f8fb; --card:#fff; --muted:#667085; --ink:#1f2937; --accent:#2563eb; --danger:#e11d48;
+      --bg:#0f1724; --card:#0b1220; --muted:#98a0aa; --ink:#e6eef8; --accent:#58a6ff; --danger:#e11d48;
       --a4w:210mm; --a4h:297mm;
     }
     *{box-sizing:border-box}
-    body{font-family:system-ui,Segoe UI,Roboto,Arial; margin:0; padding:24px; background:var(--bg); color:var(--ink)}
+    body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; margin:0; padding:18px; background:linear-gradient(180deg,#071021,#091227); color:var(--ink)}
     .container{max-width:1100px; margin:0 auto}
-    .card{background:var(--card); padding:18px; border-radius:12px; box-shadow:0 6px 18px rgba(16,24,40,.06); margin-bottom:18px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:18px; border-radius:12px; box-shadow:0 6px 18px rgba(2,6,23,.6); margin-bottom:18px}
     h1{margin:0 0 12px}
     h3{margin:12px 0 8px}
-    input[type=text], input[type=date], textarea, select{width:100%; padding:8px 10px; border:1px solid #e5e7eb; border-radius:8px}
+    input[type=text], input[type=date], textarea, select{width:100%; padding:8px 10px; border:1px solid rgba(255,255,255,0.04); border-radius:8px; background:transparent; color:var(--ink)}
     textarea{min-height:80px}
-    button{background:var(--accent); color:#fff; border:none; padding:8px 12px; border-radius:8px; cursor:pointer}
-    button.secondary{background:#475569}
-    button.danger{background:var(--danger)}
+    button{background:var(--accent); color:#041225; border:none; padding:8px 12px; border-radius:8px; cursor:pointer}
+    button.secondary{background:#475569; color:#fff}
+    button.danger{background:var(--danger); color:#fff}
     .row{display:flex; gap:12px; flex-wrap:wrap}
     .col{flex:1 1 280px}
     .muted{color:var(--muted); font-size:13px}
     .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px}
     .flash{padding:10px;border-radius:8px;margin:8px 0}
-    .flash.success{background:#ecfdf3;color:#054f31}
-    .flash.error{background:#fef3f2;color:#7a271a}
-
-    .preview-wrap{overflow:auto; max-height:75vh; padding:6px; border:1px dashed #e5e7eb; border-radius:12px; background:#fafafa}
+    .flash.success{background:#083d22;color:#a7f3d0}
+    .flash.error{background:#4c0519;color:#fecaca}
+    .preview-wrap{overflow:auto; max-height:75vh; padding:6px; border:1px dashed rgba(255,255,255,0.04); border-radius:12px; background:transparent}
     .a4{
       width: var(--a4w); min-height: var(--a4h);
       background:#fff; color:#111827;
       margin:0 auto; padding:18mm 16mm;
       box-shadow:0 3px 12px rgba(0,0,0,.08); border-radius:6px;
     }
-    .a4 h2{margin:0 0 4mm}
-    .a4 .sub{color:#374151; font-size:11pt; margin-bottom:6mm}
-    .columns{ column-count:2; column-gap:12mm; }
-    .section{break-inside:avoid; margin:0 0 6mm}
-    .section h4{margin:0 0 2mm; border-bottom:1px solid #e5e7eb; padding-bottom:2mm}
-    .item{margin:1mm 0; font-size:11pt}
+    .a4 h2{margin:0 0 6px}
+    .a4 .sub{color:#374151; font-size:11pt; margin-bottom:10px}
+    .columns{ column-gap:12mm; column-fill:balance; }
+    .section{break-inside:avoid; margin:0 0 10px}
+    .section h4{margin:0 0 4px; padding-bottom:2px}
+    .item{margin:3px 0; font-size:11pt}
     .item a{color:#1d4ed8; text-decoration:none}
     .top-actions{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+    .settings-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px}
+    .mini{font-size:13px;color:var(--muted)}
+    label.inline{display:inline-flex;gap:8px;align-items:center}
+    /* dynamic columns from settings */
+    .columns.count-1 { column-count: 1; }
+    .columns.count-2 { column-count: 2; }
+
+    /* separator rule (visible in preview) */
+    .section.separator { border-bottom: 1px solid #e6e6e6; padding-bottom: 6px; margin-bottom: 8px; }
+
+    @media (max-width:980px){
+      .a4{width:100%; min-height:400px; padding:18px}
+    }
   </style>
 </head>
 <body>
@@ -339,14 +429,30 @@ def run_flask():
           <div class="col"><label>Email</label><input type="text" name="email" value="{{ pd.get('email','') }}"></div>
           <div class="col"><label>Phone</label><input type="text" name="phone" value="{{ pd.get('phone','') }}"></div>
         </div>
-        <div class="row">
+        <div class="row" style="margin-top:10px">
           <div class="col"><label>Address</label><input type="text" name="address" value="{{ pd.get('address','') }}"></div>
           <div class="col"><label>Date of Birth</label><input type="date" name="dob" value="{{ pd.get('dob','') }}"></div>
         </div>
-        <div class="row">
+        <div class="row" style="margin-top:10px">
           <div class="col" style="flex:1 1 100%"><label>Summary</label><textarea name="summary">{{ pd.get('summary','') }}</textarea></div>
         </div>
-        <button type="submit">Save Personal Details</button>
+
+        <div class="settings-row" style="margin-top:12px">
+          <div>
+            <div class="mini">Columns</div>
+            <label class="inline"><input type="radio" name="columns" value="1" {% if settings.columns==1 %}checked{% endif %}> 1 Column</label>
+            <label class="inline"><input type="radio" name="columns" value="2" {% if settings.columns==2 %}checked{% endif %}> 2 Columns</label>
+          </div>
+          <div>
+            <div class="mini">Section separator</div>
+            <label class="inline"><input type="checkbox" name="separator" value="1" {% if settings.separator %}checked{% endif %}> Show horizontal separators</label>
+          </div>
+          <div style="margin-left:auto">
+            <button type="submit" formaction="{{ url_for('save_personal') }}">Save Personal</button>
+            <button type="submit" formaction="{{ url_for('save_settings') }}">Save Settings</button>
+          </div>
+        </div>
+
       </form>
     </div>
 
@@ -381,26 +487,26 @@ def run_flask():
             <input type="hidden" name="category" value="{{ selected_category }}" />
             <input name="entry_name" placeholder="Entry name (required)" />
             <input name="entry_link" placeholder="Optional link (https://...)" />
-            <!-- date is optional; backend defaults to today -->
+            <input name="entry_date" type="date" placeholder="Optional date" />
             <button type="submit">Add Entry</button>
           </form>
 
           <div style="margin-top:8px">
             <form method="post" action="{{ url_for('delete_category_route') }}">
               <input type="hidden" name="category" value="{{ selected_category }}" />
-              <button type="submit" style="background:#ff6b6b">Delete category</button>
+              <button type="submit" class="danger">Delete category</button>
             </form>
           </div>
 
           <div class="grid" style="margin-top:10px">
-            <div class="card" style="box-shadow:none; border:1px solid #eef2f7">
+            <div class="card" style="box-shadow:none; border:1px solid rgba(255,255,255,0.03)">
               <h4>Entries</h4>
               {% if entries %}
                 {% for e in entries %}
                   <div class="item">
                     <b>{{ e.name }}</b> — {{ e.date|fmtdate }}
                     {% if e.link %} — <a href="{{ e.link }}" target="_blank">link</a>{% endif %}
-                    <form method="post" action="{{ url_for('delete_entry_route') }}">
+                    <form method="post" action="{{ url_for('delete_entry_route') }}" style="display:inline-block;margin-left:8px">
                       <input type="hidden" name="category" value="{{ selected_category }}" />
                       <input type="hidden" name="index" value="{{ loop.index0 }}" />
                       <button type="submit" style="background:#ff8b8b;padding:4px 8px;border-radius:6px">Delete</button>
@@ -419,7 +525,7 @@ def run_flask():
     </div>
 
     <div class="card">
-      <h3>Live Resume Preview</h3>
+      <h3>Live Resume Preview (A4)</h3>
       <div class="preview-wrap">
         <div class="a4">
           <h2>{{ pd.get('name','Your Name') }}</h2>
@@ -431,15 +537,15 @@ def run_flask():
           </div>
 
           {% if pd.get('summary') %}
-            <div class="section">
+            <div class="section {% if settings.separator %}separator{% endif %}">
               <h4>Summary</h4>
               <div class="item">{{ pd.get('summary') }}</div>
             </div>
           {% endif %}
 
-          <div class="columns">
+          <div class="columns count-{{ settings.columns }}">
             {% for cat, items in all_categories.items() %}
-              <div class="section">
+              <div class="section {% if settings.separator %}separator{% endif %}">
                 <h4>{{ cat }}</h4>
                 {% if items %}
                   {% for e in items %}
@@ -456,7 +562,7 @@ def run_flask():
           </div>
         </div>
       </div>
-      <div class="muted" style="margin-top:6px">Tip: The preview above is sized to A4 and flows content into two columns automatically.</div>
+      <div class="muted" style="margin-top:6px">Tip: The preview above is sized to A4 and will flow content into columns automatically based on settings.</div>
     </div>
   </div>
 </body>
@@ -474,6 +580,7 @@ def run_flask():
             cats = list(data.get("categories", {}).keys())
             selected = request.args.get("category") or (cats[0] if cats else "")
             entries = data.get("categories", {}).get(selected, []) if selected else []
+            settings = data.get("settings", default_structure()["settings"])
             return render_template_string(
                 TEMPLATE,
                 save_path=str(SAVE_PATH),
@@ -483,7 +590,8 @@ def run_flask():
                 entries=entries,
                 all_categories=data.get("categories", {}),
                 flashes=flashes_for_template(),
-                today=datetime.date.today().isoformat()
+                today=datetime.date.today().isoformat(),
+                settings=settings
             )
         except Exception as e:
             logging.exception("Unhandled error in index")
@@ -501,10 +609,41 @@ def run_flask():
                 "summary": request.form.get("summary", ""),
             }
             set_personal_details(details)
+            # Also consider saving settings from form if present
+            settings_payload = {}
+            if request.form.get("columns"):
+                settings_payload["columns"] = int(request.form.get("columns"))
+            if request.form.get("separator") is not None:
+                settings_payload["separator"] = True
+            else:
+                # If checkbox absent, treat as false
+                if "columns" in request.form:
+                    settings_payload["separator"] = False
+            if settings_payload:
+                set_settings(settings_payload)
             flash("Personal details saved.", "success")
         except Exception:
             logging.exception("save_personal failed")
             flash("Internal error while saving personal details.", "error")
+        return redirect(url_for("index"))
+
+    @app.route("/save_settings", methods=["POST"])
+    def save_settings():
+        try:
+            cols = request.form.get("columns")
+            sep = request.form.get("separator")
+            payload = {}
+            if cols:
+                try:
+                    payload["columns"] = int(cols)
+                except Exception:
+                    payload["columns"] = 2
+            payload["separator"] = bool(sep)
+            set_settings(payload)
+            flash("Settings saved.", "success")
+        except Exception:
+            logging.exception("save_settings failed")
+            flash("Internal error while saving settings.", "error")
         return redirect(url_for("index"))
 
     @app.route("/create_category", methods=["POST"])
@@ -526,7 +665,7 @@ def run_flask():
             cat = request.form.get("category", "")
             name = request.form.get("entry_name", "")
             link = request.form.get("entry_link", "")
-            date = request.form.get("entry_date", "")  # optional; form doesn't send it; backend defaults
+            date = request.form.get("entry_date", "")  # optional; backend defaults
             ok = add_entry(cat, name, link, date)
             if ok:
                 flash("Entry added.", "success")
@@ -586,7 +725,7 @@ def run_flask():
 # ---------------------------- Entrypoint ---------------------------
 def main():
     try:
-        import flask  # just to check availability
+        import flask  # check availability
         run_flask()
     except Exception:
         logging.info("Flask not available / error importing; please install Flask:\n  pip install flask")
@@ -594,4 +733,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
