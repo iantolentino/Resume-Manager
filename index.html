@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Builder</title>
+    <style>
+        :root {
+            --bg: #0f1724;
+            --card: #0b1220;
+            --muted: #98a0aa;
+            --ink: #e6eef8;
+            --accent: #58a6ff;
+            --danger: #e11d48;
+            --a4w: 210mm;
+            --a4h: 297mm;
+            --border-radius: 12px;
+            --spacing: 18px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(180deg, #071021, #091227);
+            color: var(--ink);
+            line-height: 1.5;
+            padding: var(--spacing);
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+            padding: var(--spacing);
+            border-radius: var(--border-radius);
+            box-shadow: 0 6px 18px rgba(2, 6, 23, 0.6);
+            margin-bottom: var(--spacing);
+        }
+
+        h1, h2, h3, h4 {
+            margin-bottom: 12px;
+        }
+
+        input[type="text"],
+        input[type="date"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            background: transparent;
+            color: var(--ink);
+            margin-bottom: 10px;
+        }
+
+        textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        button {
+            background: var(--accent);
+            color: #041225;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #3d8eff;
+        }
+
+        button.secondary {
+            background: #475569;
+            color: #fff;
+        }
+
+        button.danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .col {
+            flex: 1 1 280px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 14px;
+        }
+
+        .flash {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 8px 0;
+        }
+
+        .flash.success {
+            background: #083d22;
+            color: #a7f3d0;
+        }
+
+        .flash.error {
+            background: #4c0519;
+            color: #fecaca;
+        }
+
+        .preview-wrap {
+            overflow: auto;
+            max-height: 75vh;
+            padding: 6px;
+            border: 1px dashed rgba(255, 255, 255, 0.04);
+            border-radius: var(--border-radius);
+            background: transparent;
+        }
+
+        /* A4 Preview Styles */
+        .a4 {
+            width: var(--a4w);
+            min-height: var(--a4h);
+            background: #fff;
+            color: #111827;
+            margin: 0 auto;
+            padding: 18mm 16mm;
+            box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+            border-radius: 6px;
+            position: relative;
+        }
+
+        .a4 h2 {
+            margin: 0 0 6px;
+        }
+
+        .a4 .sub {
+            color: #374151;
+            font-size: 11pt;
+            margin-bottom: 10px;
+        }
+
+        .columns {
+            column-gap: 12mm;
+            column-fill: balance;
+        }
+
+        .section {
+            break-inside: avoid;
+            margin: 0 0 10px;
+        }
+
+        .section h4 {
+            margin: 0 0 4px;
+            padding-bottom: 2px;
+            font-weight: bold;
+            text-transform: capitalize;
+        }
+
+        .item {
+            margin: 3px 0;
+            font-size: 11pt;
+        }
+
+        .item a {
+            color: #1d4ed8;
+            text-decoration: none;
+        }
+
+        .top-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .mini {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        label.inline {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        /* Dynamic columns from settings */
+        .columns.count-1 {
+            column-count: 1;
+        }
+
+        .columns.count-2 {
+            column-count: 2;
+        }
+
+        /* Separator rule (visible in preview) */
+        .section.separator {
+            border-bottom: 1px solid #e6e6e6;
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+        }
+
+        /* Photo styles */
+        .photo-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .photo-preview {
+            width: 120px;
+            height: 120px;
+            border-radius: 4px;
+            object-fit: cover;
+            border: 1px solid #ddd;
+        }
+
+        .photo-placeholder {
+            width: 120px;
+            height: 120px;
+            background-color: #f0f0f0;
+            border: 1px dashed #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #777;
+            font-size: 12px;
+            text-align: center;
+            border-radius: 4px;
+        }
+
+        .photo-controls {
+            flex: 1;
+        }
+
+        .resume-header {
+            display: flex;
+            margin-bottom: 15px;
+        }
+
+        .resume-photo {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .resume-personal {
+            flex: 1;
+        }
+
+        @media (max-width: 980px) {
+            .a4 {
+                width: 100%;
+                min-height: 400px;
+                padding: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Resume Builder</h1>
+            <div class="muted">Your data is saved automatically in your browser</div>
+
+            <div id="flash-container"></div>
+
+            <h3>Personal Details</h3>
+            <form id="personal-form">
+                <div class="photo-section">
+                    <div id="photo-preview-container">
+                        <div class="photo-placeholder" id="photo-placeholder">No Photo</div>
+                        <img id="photo-preview" class="photo-preview" style="display: none;" alt="Your Photo">
+                    </div>
+                    <div class="photo-controls">
+                        <input type="file" id="photo-upload" accept="image/*">
+                        <button type="button" id="remove-photo" class="secondary" style="display: none;">Remove Photo</button>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col">
+                        <label>Name</label>
+                        <input type="text" id="name" name="name">
+                    </div>
+                    <div class="col">
+                        <label>Email</label>
+                        <input type="text" id="email" name="email">
+                    </div>
+                    <div class="col">
+                        <label>Phone</label>
+                        <input type="text" id="phone" name="phone">
+                    </div>
+                </div>
+                <div class="row" style="margin-top:10px">
+                    <div class="col">
+                        <label>Address</label>
+                        <input type="text" id="address" name="address">
+                    </div>
+                    <div class="col">
+                        <label>Date of Birth</label>
+                        <input type="date" id="dob" name="dob">
+                    </div>
+                </div>
+                <div class="row" style="margin-top:10px">
+                    <div class="col" style="flex:1 1 100%">
+                        <label>Summary</label>
+                        <textarea id="summary" name="summary"></textarea>
+                    </div>
+                </div>
+
+                <div class="settings-row" style="margin-top:12px">
+                    <div>
+                        <div class="mini">Columns</div>
+                        <label class="inline">
+                            <input type="radio" name="columns" value="1"> 1 Column
+                        </label>
+                        <label class="inline">
+                            <input type="radio" name="columns" value="2" checked> 2 Columns
+                        </label>
+                    </div>
+                    <div>
+                        <div class="mini">Section separator</div>
+                        <label class="inline">
+                            <input type="checkbox" name="separator" value="1" checked> Show horizontal separators
+                        </label>
+                    </div>
+                    <div style="margin-left:auto">
+                        <button type="button" id="save-personal">Save Personal</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="top-actions">
+                <!-- Create category -->
+                <form id="create-category-form">
+                    <input name="category_name" placeholder="Create new category (e.g. Projects)">
+                    <button type="submit">Create category</button>
+                </form>
+
+                <select id="category-selector">
+                    <option value="">-- Select category --</option>
+                </select>
+
+                <button id="download-pdf" class="secondary">Download PDF</button>
+            </div>
+
+            <div id="category-section" style="display: none;">
+                <div style="margin-top:10px">
+                    <h3>Category: <span id="selected-category-name"></span></h3>
+
+                    <!-- Add entry -->
+                    <form id="add-entry-form">
+                        <input type="hidden" id="entry-category" name="category">
+                        <input name="entry_name" placeholder="Entry name (required)">
+                        <input name="entry_link" placeholder="Optional link (https://...)">
+                        <input name="entry_date" type="date" placeholder="Optional date">
+                        <button type="submit">Add Entry</button>
+                    </form>
+
+                    <div style="margin-top:8px">
+                        <button id="delete-category" class="danger">Delete category</button>
+                    </div>
+
+                    <div class="grid" style="margin-top:10px">
+                        <div class="card" style="box-shadow:none; border:1px solid rgba(255,255,255,0.03)">
+                            <h4>Entries</h4>
+                            <div id="entries-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="no-category-message" class="muted" style="margin-top:10px">
+                Select a category to view or add entries.
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Live Resume Preview (A4)</h3>
+            <div class="preview-wrap">
+                <div class="a4" id="resume-preview">
+                    <!-- Preview content will be generated by JavaScript -->
+                </div>
+            </div>
+            <div class="muted" style="margin-top:6px">
+                Tip: The preview above is sized to A4 and will flow content into columns automatically based on settings.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data structure
+        let resumeData = {
+            personal_details: {},
+            categories: {},
+            settings: {
+                columns: 2,
+                separator: true
+            }
+        };
+
+        // DOM elements
+        const flashContainer = document.getElementById('flash-container');
+        const personalForm = document.getElementById('personal-form');
+        const photoUpload = document.getElementById('photo-upload');
+        const photoPreview = document.getElementById('photo-preview');
+        const photoPlaceholder = document.getElementById('photo-placeholder');
+        const removePhotoBtn = document.getElementById('remove-photo');
+        const savePersonalBtn = document.getElementById('save-personal');
+        const createCategoryForm = document.getElementById('create-category-form');
+        const categorySelector = document.getElementById('category-selector');
+        const categorySection = document.getElementById('category-section');
+        const noCategoryMessage = document.getElementById('no-category-message');
+        const selectedCategoryName = document.getElementById('selected-category-name');
+        const addEntryForm = document.getElementById('add-entry-form');
+        const entryCategory = document.getElementById('entry-category');
+        const deleteCategoryBtn = document.getElementById('delete-category');
+        const entriesList = document.getElementById('entries-list');
+        const downloadPdfBtn = document.getElementById('download-pdf');
+        const resumePreview = document.getElementById('resume-preview');
+
+        // Initialize the application
+        function init() {
+            loadData();
+            setupEventListeners();
+            updatePreview();
+            updateCategorySelector();
+        }
+
+        // Load data from localStorage
+        function loadData() {
+            const savedData = localStorage.getItem('resumeData');
+            if (savedData) {
+                resumeData = JSON.parse(savedData);
+                
+                // Populate personal details form
+                const pd = resumeData.personal_details;
+                document.getElementById('name').value = pd.name || '';
+                document.getElementById('email').value = pd.email || '';
+                document.getElementById('phone').value = pd.phone || '';
+                document.getElementById('address').value = pd.address || '';
+                document.getElementById('dob').value = pd.dob || '';
+                document.getElementById('summary').value = pd.summary || '';
+                
+                // Populate photo if exists
+                if (pd.photo) {
+                    photoPreview.src = pd.photo;
+                    photoPreview.style.display = 'block';
+                    photoPlaceholder.style.display = 'none';
+                    removePhotoBtn.style.display = 'inline-block';
+                }
+                
+                // Populate settings
+                const settings = resumeData.settings;
+                document.querySelector(`input[name="columns"][value="${settings.columns}"]`).checked = true;
+                document.querySelector('input[name="separator"]').checked = settings.separator;
+            }
+        }
+
+        // Save data to localStorage
+        function saveData() {
+            localStorage.setItem('resumeData', JSON.stringify(resumeData));
+        }
+
+        // Setup event listeners
+        function setupEventListeners() {
+            // Personal details form
+            savePersonalBtn.addEventListener('click', savePersonalDetails);
+            
+            // Photo upload
+            photoUpload.addEventListener('change', handlePhotoUpload);
+            removePhotoBtn.addEventListener('click', removePhoto);
+            
+            // Category management
+            createCategoryForm.addEventListener('submit', createCategory);
+            categorySelector.addEventListener('change', selectCategory);
+            addEntryForm.addEventListener('submit', addEntry);
+            deleteCategoryBtn.addEventListener('click', deleteCategory);
+            
+            // Settings
+            personalForm.querySelectorAll('input[name="columns"]').forEach(radio => {
+                radio.addEventListener('change', updateSettings);
+            });
+            personalForm.querySelector('input[name="separator"]').addEventListener('change', updateSettings);
+            
+            // PDF download
+            downloadPdfBtn.addEventListener('click', downloadPDF);
+        }
+
+        // Handle photo upload
+        function handlePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    photoPreview.src = e.target.result;
+                    photoPreview.style.display = 'block';
+                    photoPlaceholder.style.display = 'none';
+                    removePhotoBtn.style.display = 'inline-block';
+                    
+                    // Save to data
+                    if (!resumeData.personal_details) {
+                        resumeData.personal_details = {};
+                    }
+                    resumeData.personal_details.photo = e.target.result;
+                    saveData();
+                    updatePreview();
+                    showFlash('Photo uploaded successfully', 'success');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // Remove photo
+        function removePhoto() {
+            photoPreview.style.display = 'none';
+            photoPlaceholder.style.display = 'block';
+            removePhotoBtn.style.display = 'none';
+            photoUpload.value = '';
+            
+            // Remove from data
+            if (resumeData.personal_details) {
+                delete resumeData.personal_details.photo;
+                saveData();
+                updatePreview();
+                showFlash('Photo removed', 'success');
+            }
+        }
+
+        // Save personal details
+        function savePersonalDetails() {
+            const formData = new FormData(personalForm);
+            
+            if (!resumeData.personal_details) {
+                resumeData.personal_details = {};
+            }
+            
+            resumeData.personal_details.name = formData.get('name') || '';
+            resumeData.personal_details.email = formData.get('email') || '';
+            resumeData.personal_details.phone = formData.get('phone') || '';
+            resumeData.personal_details.address = formData.get('address') || '';
+            resumeData.personal_details.dob = formData.get('dob') || '';
+            resumeData.personal_details.summary = formData.get('summary') || '';
+            
+            saveData();
+            updatePreview();
+            showFlash('Personal details saved', 'success');
+        }
+
+        // Update settings
+        function updateSettings() {
+            const columns = parseInt(document.querySelector('input[name="columns"]:checked').value);
+            const separator = document.querySelector('input[name="separator"]').checked;
+            
+            resumeData.settings.columns = columns;
+            resumeData.settings.separator = separator;
+            
+            saveData();
+            updatePreview();
+        }
+
+        // Create a new category
+        function createCategory(event) {
+            event.preventDefault();
+            const formData = new FormData(createCategoryForm);
+            const categoryName = formData.get('category_name').trim();
+            
+            if (!categoryName) {
+                showFlash('Category name is required', 'error');
+                return;
+            }
+            
+            if (resumeData.categories[categoryName]) {
+                showFlash('Category already exists', 'error');
+                return;
+            }
+            
+            resumeData.categories[categoryName] = [];
+            saveData();
+            updateCategorySelector();
+            createCategoryForm.reset();
+            showFlash('Category created', 'success');
+        }
+
+        // Update category selector dropdown
+        function updateCategorySelector() {
+            categorySelector.innerHTML = '<option value="">-- Select category --</option>';
+            
+            Object.keys(resumeData.categories).forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                categorySelector.appendChild(option);
+            });
+        }
+
+        // Select a category
+        function selectCategory() {
+            const category = categorySelector.value;
+            
+            if (category) {
+                categorySection.style.display = 'block';
+                noCategoryMessage.style.display = 'none';
+                selectedCategoryName.textContent = category;
+                entryCategory.value = category;
+                displayEntries(category);
+            } else {
+                categorySection.style.display = 'none';
+                noCategoryMessage.style.display = 'block';
+            }
+        }
+
+        // Display entries for a category
+        function displayEntries(category) {
+            entriesList.innerHTML = '';
+            
+            const entries = resumeData.categories[category] || [];
+            
+            if (entries.length === 0) {
+                entriesList.innerHTML = '<div class="muted">No entries yet in this category.</div>';
+                return;
+            }
+            
+            entries.forEach((entry, index) => {
+                const entryElement = document.createElement('div');
+                entryElement.className = 'item';
+                
+                const date = entry.date ? formatDate(entry.date) : '';
+                const link = entry.link ? ` — <a href="${entry.link}" target="_blank">link</a>` : '';
+                
+                entryElement.innerHTML = `
+                    <b>${entry.name}</b> — ${date}${link}
+                    <button type="button" class="delete-entry" data-index="${index}" style="background:#ff8b8b;padding:4px 8px;border-radius:6px;margin-left:8px">Delete</button>
+                `;
+                
+                entriesList.appendChild(entryElement);
+            });
+            
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.delete-entry').forEach(button => {
+                button.addEventListener('click', function() {
+                    deleteEntry(category, parseInt(this.getAttribute('data-index')));
+                });
+            });
+        }
+
+        // Add an entry to a category
+        function addEntry(event) {
+            event.preventDefault();
+            const formData = new FormData(addEntryForm);
+            const category = formData.get('category');
+            const name = formData.get('entry_name').trim();
+            const link = formData.get('entry_link').trim();
+            const date = formData.get('entry_date');
+            
+            if (!name) {
+                showFlash('Entry name is required', 'error');
+                return;
+            }
+            
+            if (!resumeData.categories[category]) {
+                showFlash('Category does not exist', 'error');
+                return;
+            }
+            
+            const entry = {
+                name: name,
+                link: link || null,
+                date: date || new Date().toISOString().split('T')[0],
+                created_at: new Date().toISOString()
+            };
+            
+            resumeData.categories[category].push(entry);
+            saveData();
+            displayEntries(category);
+            updatePreview();
+            addEntryForm.reset();
+            showFlash('Entry added', 'success');
+        }
+
+        // Delete an entry
+        function deleteEntry(category, index) {
+            if (resumeData.categories[category] && resumeData.categories[category][index]) {
+                resumeData.categories[category].splice(index, 1);
+                saveData();
+                displayEntries(category);
+                updatePreview();
+                showFlash('Entry deleted', 'success');
+            }
+        }
+
+        // Delete a category
+        function deleteCategory() {
+            const category = categorySelector.value;
+            
+            if (category && resumeData.categories[category]) {
+                delete resumeData.categories[category];
+                saveData();
+                updateCategorySelector();
+                categorySection.style.display = 'none';
+                noCategoryMessage.style.display = 'block';
+                updatePreview();
+                showFlash('Category deleted', 'success');
+            }
+        }
+
+        // Update the preview
+        function updatePreview() {
+            const pd = resumeData.personal_details || {};
+            const categories = resumeData.categories || {};
+            const settings = resumeData.settings || { columns: 2, separator: true };
+            
+            let previewHTML = '';
+            
+            // Header with photo
+            previewHTML += '<div class="resume-header">';
+            if (pd.photo) {
+                previewHTML += `<img src="${pd.photo}" class="resume-photo" alt="Profile Photo">`;
+            }
+            previewHTML += '<div class="resume-personal">';
+            previewHTML += `<h2>${pd.name || 'Your Name'}</h2>`;
+            
+            // Contact info
+            const contactItems = [];
+            if (pd.email) contactItems.push(pd.email);
+            if (pd.phone) contactItems.push(pd.phone);
+            if (pd.address) contactItems.push(pd.address);
+            if (pd.dob) contactItems.push(`DOB: ${formatDate(pd.dob)}`);
+            
+            if (contactItems.length > 0) {
+                previewHTML += `<div class="sub">${contactItems.join(' | ')}</div>`;
+            }
+            
+            if (pd.summary) {
+                previewHTML += `<div class="section ${settings.separator ? 'separator' : ''}">`;
+                previewHTML += `<h4>Summary</h4>`;
+                previewHTML += `<div class="item">${pd.summary}</div>`;
+                previewHTML += '</div>';
+            }
+            
+            previewHTML += '</div></div>';
+            
+            // Categories
+            previewHTML += `<div class="columns count-${settings.columns}">`;
+            
+            Object.keys(categories).forEach((category, index) => {
+                const items = categories[category];
+                const isFirst = index === 0 && !pd.summary;
+                
+                previewHTML += `<div class="section ${settings.separator && !isFirst ? 'separator' : ''}">`;
+                previewHTML += `<h4>${category}</h4>`;
+                
+                if (items && items.length > 0) {
+                    items.forEach(item => {
+                        const date = item.date ? formatDate(item.date) : '';
+                        const link = item.link ? ` — <a href="${item.link}" target="_blank">link</a>` : '';
+                        previewHTML += `<div class="item"><b>${item.name}</b> — ${date}${link}</div>`;
+                    });
+                } else {
+                    previewHTML += '<div class="item muted">No items yet.</div>';
+                }
+                
+                previewHTML += '</div>';
+            });
+            
+            previewHTML += '</div>';
+            
+            resumePreview.innerHTML = previewHTML;
+        }
+
+        // Format date for display
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+            } catch (e) {
+                return dateString;
+            }
+        }
+
+        // Show flash messages
+        function showFlash(message, type) {
+            const flash = document.createElement('div');
+            flash.className = `flash ${type}`;
+            flash.textContent = message;
+            
+            flashContainer.appendChild(flash);
+            
+            setTimeout(() => {
+                flash.remove();
+            }, 3000);
+        }
+
+        // Download PDF
+        function downloadPDF() {
+            // Create a new window with the resume content for printing
+            const printWindow = window.open('', '_blank');
+            const pd = resumeData.personal_details || {};
+            const categories = resumeData.categories || {};
+            const settings = resumeData.settings || { columns: 2, separator: true };
+            
+            let pdfHTML = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Resume - ${pd.name || 'Your Name'}</title>
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            color: #111827;
+                            margin: 0;
+                            padding: 20px;
+                        }
+                        .resume-header {
+                            display: flex;
+                            margin-bottom: 20px;
+                        }
+                        .resume-photo {
+                            width: 100px;
+                            height: 100px;
+                            object-fit: cover;
+                            border-radius: 4px;
+                            margin-right: 15px;
+                        }
+                        .resume-personal {
+                            flex: 1;
+                        }
+                        h2 {
+                            margin: 0 0 5px;
+                        }
+                        .sub {
+                            color: #374151;
+                            font-size: 11pt;
+                            margin-bottom: 10px;
+                        }
+                        .columns {
+                            column-count: ${settings.columns};
+                            column-gap: 20px;
+                        }
+                        .section {
+                            break-inside: avoid;
+                            margin-bottom: 15px;
+                        }
+                        .section h4 {
+                            margin: 0 0 5px;
+                            font-weight: bold;
+                            text-transform: capitalize;
+                            border-bottom: ${settings.separator ? '1px solid #e6e6e6' : 'none'};
+                            padding-bottom: 3px;
+                        }
+                        .item {
+                            margin: 3px 0;
+                            font-size: 11pt;
+                        }
+                        @media print {
+                            body {
+                                padding: 0;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="resume-header">
+            `;
+            
+            if (pd.photo) {
+                pdfHTML += `<img src="${pd.photo}" class="resume-photo" alt="Profile Photo">`;
+            }
+            
+            pdfHTML += `
+                        <div class="resume-personal">
+                            <h2>${pd.name || 'Your Name'}</h2>
+            `;
+            
+            const contactItems = [];
+            if (pd.email) contactItems.push(pd.email);
+            if (pd.phone) contactItems.push(pd.phone);
+            if (pd.address) contactItems.push(pd.address);
+            if (pd.dob) contactItems.push(`DOB: ${formatDate(pd.dob)}`);
+            
+            if (contactItems.length > 0) {
+                pdfHTML += `<div class="sub">${contactItems.join(' | ')}</div>`;
+            }
+            
+            if (pd.summary) {
+                pdfHTML += `<div class="section"><h4>Summary</h4><div class="item">${pd.summary}</div></div>`;
+            }
+            
+            pdfHTML += `</div></div><div class="columns">`;
+            
+            Object.keys(categories).forEach(category => {
+                const items = categories[category];
+                
+                pdfHTML += `<div class="section"><h4>${category}</h4>`;
+                
+                if (items && items.length > 0) {
+                    items.forEach(item => {
+                        const date = item.date ? formatDate(item.date) : '';
+                        const link = item.link ? ` — ${item.link}` : '';
+                        pdfHTML += `<div class="item"><b>${item.name}</b> — ${date}${link}</div>`;
+                    });
+                } else {
+                    pdfHTML += '<div class="item">No items yet.</div>';
+                }
+                
+                pdfHTML += '</div>';
+            });
+            
+            pdfHTML += '</div></body></html>';
+            
+            printWindow.document.write(pdfHTML);
+            printWindow.document.close();
+            printWindow.print();
+        }
+
+        // Initialize the application
+        init();
+    </script>
+</body>
+</html>
